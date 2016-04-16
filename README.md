@@ -31,7 +31,7 @@ npm install itako-text-transformer-dictionary --save
 Usage
 ---
 
-## `ItakoTextTransformerDictionary` -> `reader`
+## `ItakoTextTransformerDictionary` -> `transformer`
 
 specify instance as second argument of the [Itako constructor](https://github.com/itakojs/itako#usage) as the value of the array.
 
