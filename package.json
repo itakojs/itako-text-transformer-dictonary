@@ -34,8 +34,6 @@
   },
   "devDependencies": {
     "abigail": "^1.6.1",
-    "ava": "^0.14.0",
-    "ava-spec": "^1.0.0",
     "babel-cli": "^6.6.5",
     "babel-eslint": "^6.0.2",
     "babel-plugin-transform-object-assign": "^6.5.0",
