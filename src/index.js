@@ -1,5 +1,5 @@
-// dependencies
-import escapeRegexp from 'escape-regexp';
+// self dependencies
+import * as utils from './utils';
 
 // @class ItakoTextTransformerDictionary
 export default class ItakoTextTransformerDictionary {
@@ -16,107 +16,226 @@ export default class ItakoTextTransformerDictionary {
   }
 
   /**
-  * @method toRegExp
-  * @param {string} pattern - a dictionary key
-  * @returns {regexp} regexp - the replacer
-  */
-  toRegExp(pattern) {
-    if (pattern[0] === '/') {
-      return new RegExp(pattern.replace(/(^\/|\/$)/g, ''), 'gi');
-    }
-    return new RegExp(escapeRegexp(pattern), 'gi');
-  }
-
-  /**
   * @method transform
   * @param {tokens[]} originalTokens - a original token
   * @param {object} [dictionary={}] - a transformer options (via itako.option)
-  * @returns {tokens[]} tokens - the transformed tokens
+  * @returns {tokens[]} tokens - the transformed tokens or ignore
   */
   transform(originalTokens, dictionary = {}) {
+    const defines = utils.normalizeDictionary(dictionary);
     return originalTokens.map((originalToken) => {
       let tokens = [originalToken];
-      for (const pattern in dictionary) {
-        if (dictionary.hasOwnProperty(pattern) === false) {
-          continue;
+      for (let i = 0; i < defines.length; i++) {
+        const { pattern, options } = defines[i];
+        const opts = typeof options === 'string' ? { replace: options } : options;
+        if (opts.rewrite) {
+          tokens = this.rewrite(tokens, pattern, options);
+        } else if (opts.replace) {
+          tokens = tokens.reduce(
+            (previous, token) => previous.concat(this.replace(token, pattern, opts)),
+            [],
+          );
+        } else if (opts.toggle) {
+          tokens = tokens.reduce(
+            (previous, token) => previous.concat(this.toggle(token, pattern, opts)),
+            [],
+          );
+        } else if (opts.exchange) {
+          tokens = tokens.reduce(
+            (previous, token) => previous.concat(this.exchange(token, pattern, opts)),
+            [],
+          );
         }
-
-        const regexp = this.toRegExp(pattern);
-        const replace = dictionary[pattern];
-        tokens = tokens.reduce((previous, token) =>
-          previous.concat(this.createDictionaryTokens(token, regexp, replace))
-        , []);
       }
       return tokens;
     });
   }
 
   /**
-  * @method createDictionaryTokens
-  * @param {token} originalToken - a source token
-  * @param {regexp} regexp - a replace target
-  * @param {string|object} replace - a replace word / new token properties
-  * @returns {token[]} dictionaryToken - the modified tokens
+  * @method rewrite
+  * @param {token[]} originalTokens - a target tokens
+  * @param {string} pattern - a replace target
+  * @param {object} opts - use rewrite and onMatch option
+  * @returns {tokens[]} tokens - ignore or return the modified tokens
   */
-  createDictionaryTokens(originalToken, regexp, replace = {}) {
+  rewrite(originalTokens, pattern, opts = {}) {
+    const regexp = utils.toRegExp(pattern);
+
+    for (let i = 0; i < originalTokens.length; i++) {
+      const originalToken = originalTokens[i];
+      if (originalToken.type !== 'text') {
+        continue;
+      }
+      const [value, ...matches] = regexp.exec(originalToken.value) || [];
+      if (value === undefined) {
+        continue;
+      }
+
+      const normalizedProps = utils.resolveDollars(opts.rewrite, matches);
+      const token = utils.setProps(
+        originalToken
+          .clone({ transformer: this, rewrite: true })
+          .setValue(value),
+        normalizedProps,
+      );
+
+      const onMatch = opts.onMatch || (() => true);
+      if (onMatch.call(this, token, normalizedProps, matches) === false) {
+        return originalTokens;
+      }
+      return [token];
+    }
+
+    return originalTokens;
+  }
+
+  /**
+  * @method toggle
+  * @param {token} originalToken - a source token
+  * @param {string} pattern - a replace target
+  * @param {object} opts - use replace and onMatch option
+  * @returns {token} replacedToken - ignore or return the modified tokens
+  */
+  replace(originalToken, pattern, opts = {}) {
     if (originalToken.type !== 'text') {
       return originalToken;
     }
 
-    const opts = typeof replace === 'string' ? { replace } : replace;
-    const chunks = originalToken.value.split(regexp);
-    if (chunks.length > 1) {
-      if (typeof opts.replace === 'string') {
-        return originalToken
-          .clone({ transformer: this })
-          .setValue(chunks.join(opts.replace));
+    const regexp = utils.toRegExp(pattern);
+    const [value, ...matches] = regexp.exec(originalToken.value) || [''];
+    if (typeof opts.replace === 'string' && value.length) {
+      const token = originalToken
+        .clone({ transformer: this })
+        .setValue(originalToken.value.replace(regexp, opts.replace));
+
+      const onMatch = opts.onMatch || (() => true);
+      if (onMatch.call(this, token, opts.replace, matches) !== false) {
+        return token;
       }
+    }
+    return originalToken;
+  }
 
-      const dictionaryToken = originalToken.clone({ transformer: this });
-      for (const key in opts) {
-        if (opts.hasOwnProperty(key) === false) {
-          continue;
-        }
-
-        // 'key' -> 'setKey'
-        const methodName = `set${key[0].toUpperCase()}${key.slice(1)}`;
-        if (typeof dictionaryToken[methodName] === 'function') {
-          dictionaryToken[methodName](opts[key]);
-        }
-      }
-
-      const matches = originalToken.value.match(regexp);
-      if (opts.rewrite && matches !== null) {
-        if (opts.value === undefined) {
-          dictionaryToken.setValue(matches[0]);
-        }
-        return dictionaryToken;
-      }
-
-      const children = [];
-      // eslint-disable-next-line no-loop-func
-      chunks.forEach((chunk, i) => {
-        const normalizeChunk = this.opts.trim ? chunk.trim() : chunk;
-        if (normalizeChunk.length) {
-          const child = originalToken
-            .clone({ transformer: this })
-            .setValue(normalizeChunk);
-          children.push(child);
-        }
-
-        if (i + 1 < chunks.length) {
-          const child = dictionaryToken.clone({ transformer: this });
-          if (opts.value === undefined) {
-            const matchedValue = originalToken.value.match(regexp)[i];
-            child.setValue(matchedValue);
-          }
-          children.push(child);
-        }
-      });
-
-      return children;
+  /**
+  * @method toggle
+  * @param {token} originalToken - a source token
+  * @param {string} pattern - a replace target
+  * @param {object} opts - use toggle and onMatch option
+  * @returns {token|token[]} toggledTokens - ignore or return the modified tokens
+  */
+  toggle(originalToken, pattern, opts = {}) {
+    if (originalToken.type !== 'text') {
+      return originalToken;
     }
 
-    return originalToken;
+    const regexp = utils.toRegExp(pattern);
+
+    const children = [];
+    let result = regexp.exec(originalToken.value);
+    let lastIndexOf = 0;
+    let normalizedOptions = {};
+    while (result) {
+      const [value, ...matches] = result;
+      if (result.index > lastIndexOf) {
+        const leftValue = originalToken.value.slice(lastIndexOf, result.index);
+        const normalizedValue = this.opts.trim ? leftValue.trim() : leftValue;
+        if (normalizedValue) {
+          children.push(
+            originalToken
+            .clone({ transformer: this })
+            .setOptions(normalizedOptions)
+            .setValue(normalizedValue),
+          );
+        }
+      }
+      lastIndexOf = result.index + value.length;
+
+      const resolvedOptions = utils.resolveDollars(opts.toggle, matches);
+      const token = originalToken
+        .clone({ transformer: this })
+        .setValue(value)
+        .setOptions(resolvedOptions);
+      const onMatch = opts.onMatch || (() => true);
+      if (onMatch.call(this, token, resolvedOptions, matches) === false) {
+        return originalToken;
+      }
+      normalizedOptions = resolvedOptions;
+
+      result = regexp.exec(originalToken.value);
+    }
+    if (originalToken.value.length > lastIndexOf) {
+      const value = originalToken.value.slice(lastIndexOf);
+      const normalizedValue = this.opts.trim ? value.trim() : value;
+      children.push(
+        originalToken
+        .clone({ transformer: this })
+        .setOptions(normalizedOptions)
+        .setValue(normalizedValue),
+      );
+    }
+
+    return children;
+  }
+
+  /**
+  * @method exchange
+  * @param {token} originalToken - a source token
+  * @param {string} pattern - a replace target
+  * @param {object} opts - use exchange and onMatch option
+  * @returns {token|token[]} exchangedToken - ignore or return the modified tokens
+  */
+  exchange(originalToken, pattern, opts = {}) {
+    if (originalToken.type !== 'text') {
+      return originalToken;
+    }
+
+    const regexp = utils.toRegExp(pattern);
+
+    const children = [];
+    let result = regexp.exec(originalToken.value);
+    let lastIndexOf = 0;
+    while (result) {
+      const [value, ...matches] = result;
+      if (result.index > lastIndexOf) {
+        const leftValue = originalToken.value.slice(lastIndexOf, result.index);
+        const normalizedValue = this.opts.trim ? leftValue.trim() : leftValue;
+        if (normalizedValue) {
+          children.push(
+            originalToken
+            .clone({ transformer: this })
+            .setValue(normalizedValue),
+          );
+        }
+      }
+      lastIndexOf = result.index + value.length;
+
+      const normalizedPropties = utils.resolveDollars(opts.exchange, matches);
+      const token = originalToken
+        .clone({ transformer: this })
+        .setValue(value);
+      const onMatch = opts.onMatch || (() => true);
+      if (onMatch.call(this, token, normalizedPropties, matches) === false) {
+        return originalToken;
+      }
+
+      children.push(
+        utils.setProps(
+          token,
+          normalizedPropties,
+        )
+      );
+      result = regexp.exec(originalToken.value);
+    }
+    if (originalToken.value.length > lastIndexOf) {
+      const value = originalToken.value.slice(lastIndexOf);
+      const normalizedValue = this.opts.trim ? value.trim() : value;
+      children.push(
+        originalToken
+        .clone({ transformer: this })
+        .setValue(normalizedValue),
+      );
+    }
+
+    return children;
   }
 }
