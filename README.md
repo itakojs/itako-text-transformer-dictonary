@@ -31,7 +31,7 @@ npm install itako-text-transformer-dictionary --save
 Usage
 ---
 
-[DEMO](https://jsfiddle.net/59naga/kn0r4s8f/5/)
+[DEMO](https://jsfiddle.net/kn0r4s8f/12/)
 
 ## `ItakoTextTransformerDictionary` -> `transformer`
 
