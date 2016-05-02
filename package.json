@@ -1,7 +1,7 @@
 {
   "name": "itako-text-transformer-dictionary",
   "description": "itako-v0 dictionary transformer plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "lib",
   "files": [
     "lib"
