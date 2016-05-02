@@ -45,7 +45,12 @@ specify instance as second argument of the [Itako constructor](https://github.co
 <script>
 var textReader = new ItakoTextReaderSpeechSynthesis;
 var audioReader = new ItakoAudioReaderAudioContext;
-var transformer = new ItakoTextTransformerDictionary;
+var transformer = new ItakoTextTransformerDictionary({
+  onMatch: function (define, originalToken, transformedToken, matches) {
+    // do staff...
+    // if return false, abort the transform.
+  },
+});
 var itako = new Itako([textReader, audioReader], [transformer], {
   read: {
     serial: true,
@@ -56,56 +61,39 @@ var itako = new Itako([textReader, audioReader], [transformer], {
         // replace token.value to 'hello (pitch:2) world (pitch:0.5)'
         {
           pattern: 'greeting',
-          options: {
-            replace: 'hello (pitch:2) world (pitch:0.5)',
-          },
+          method: 'replace',
+          replacement: 'hello (pitch:2) world (pitch:0.5)',
         },
         // change token.options to $1:$2 (remove the matched value)
         {
           pattern: '/(volume|pitch):([\\.\\d]+)/',
-          options: {
-            toggle: {
-              $1: '$2',
-            },
-          },
+          method: 'toggle',
+          replacement: "{$1:'$2'}",
         },
         // create new token using properties instead of `nintendo`
         {
           pattern: 'nintendo',
-          options: {
-            exchange: {
-              type: 'audio',
-              value: 'http://static.edgy.black/fixture.wav',
-            },
-          },
+          method: 'exchange',
+          replacement: "{type:'audio',value:'http://static.edgy.black/fixture.wav'}",
         },
         // if match, overrides all tokens using new instance
         {
           pattern: '/play\\((.+?).wav\\)/',
-          options: {
-            rewrite: {
-              type: 'audio',
-              value: 'http://static.edgy.black/$1.wav',
-            },
-          },
+          method: 'rewrite',
+          replacement: "{type:'audio',value:'http://static.edgy.black/$1.wav'}",
         },
         // if match, passed arguments of transform to onMatch
         {
           pattern: '/@([\\S]+)/',
-          options: {
-            replace: 'registered the `$1`',
-            onMatch: function (token, name, matches) {
-              // do staff...
-              // if return false, abort the transform.
-            },
-          },
+          method: 'replace',
+          replacement: 'registered the `$1`',
         },
       ],
     },
   },
 });
 
-// speech-synthesis say 'hello world, guys'. then play sound `fixture.wav`.'
+// speech-synthesis say 'hello world, guys'. then play sound `fixture.wav`.
 itako.read('greeting, guys. (pitch:0.75) nintendo');
 
 // play sound `fixture.wav` only.

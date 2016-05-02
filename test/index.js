@@ -7,8 +7,8 @@ import Itako from 'itako';
 import ItakoTextTransformerDictionary from '../src';
 
 // fixture
-const transformer = new ItakoTextTransformerDictionary;
-const transform = (words, options) => {
+const transform = (words, options, transformerOptions = {}) => {
+  const transformer = new ItakoTextTransformerDictionary(transformerOptions);
   const path = 'transformers.dictionary.options';
   const itako = new Itako([], [transformer]).setOption(path, options);
   return itako.transform(words);
@@ -76,7 +76,7 @@ describe('use exchange option', () => {
   it('it should create a new token using defined the properties', () => {
     const tokens = transform('abc', {
       a: { exchange: { type: 'audio' } },
-      b: { exchange: { type: 'extra', value: 'beep' } },
+      b: { exchange: "{ type: 'extra', value: 'beep' }" },
     });
     assert(tokens.length === 3);
     assert(tokens[0].type === 'audio');
@@ -100,7 +100,7 @@ describe('use exchange option', () => {
   it('should ignore unless text token', () => {
     const tokens = transform('volume:1', {
       '/.+/': { rewrite: { type: 'ignoreme' } },
-      '/(volume):(\\d)/': { exchange: { type: 'audio', options: { $1: '$2' } } },
+      '/(volume):(\\d)/': { exchange: "{ type: 'audio', options: { $1: '$2' } }" },
     });
     assert(tokens.length === 1);
     assert(tokens[0].type === 'ignoreme');
@@ -135,11 +135,83 @@ describe('use toggle option', () => {
   it('should ignore unless text token', () => {
     const tokens = transform('(volume:1)abc', {
       '/.+/': { rewrite: { type: 'ignoreme' } },
-      '/\\((volume):(\\d)\\)/': { toggle: { $1: '$2' } },
+      '/\\((volume):(\\d)\\)/': "{ toggle: { $1: '$2' } }",
     });
     assert(tokens.length === 1);
     assert(tokens[0].type === 'ignoreme');
     assert(tokens[0].value === '(volume:1)abc');
+  });
+});
+
+describe('use onMatch option', () => {
+  it('it should pass the token and properties and matches to the onMatch callback', () => {
+    const onMatch = sinon.spy(() => true);
+    const words = 'lorem ipsum dolor sit amet, consectetur adipisicing elit.';
+    const tokens = transform(words, {
+      '/(lorem)/': { replace: 'ろーれむ' },
+      ipsum: { exchange: { value: 'いぷさむ' } },
+      '/(dolor)/': { toggle: { speaker: '$1' } },
+      '/(sit|amet|consectetur|adipisicing|elit)/': { rewrite: { type: 'foo' } },
+    }, { onMatch });
+    assert(tokens.length === 1);
+    assert(tokens[0].type === 'foo');
+    assert(tokens[0].value === 'sit');
+
+    assert(onMatch.callCount === 4);
+    assert(onMatch.args[0].length === 4);
+    assert(onMatch.args[0][0].method === 'replace');
+    assert(onMatch.args[0][0].replacement.value === 'ろーれむ');
+    assert(onMatch.args[0][1].value === 'lorem ipsum dolor sit amet, consectetur adipisicing elit.');
+    assert(onMatch.args[0][2].value === 'ろーれむ ipsum dolor sit amet, consectetur adipisicing elit.');
+    assert(onMatch.args[0][3].length === 1);
+    assert(onMatch.args[0][3][0] === 'lorem');
+
+    assert(onMatch.args[1].length === 4);
+    assert(onMatch.args[1][0].method === 'exchange');
+    assert(onMatch.args[1][0].replacement.value === 'いぷさむ');
+    assert(onMatch.args[1][1].value === 'ろーれむ ipsum dolor sit amet, consectetur adipisicing elit.');
+    assert(onMatch.args[1][2].value === 'いぷさむ');
+    assert(onMatch.args[1][3].length === 0);
+
+    assert(onMatch.args[2].length === 4);
+    assert(onMatch.args[2][0].method === 'toggle');
+    assert(onMatch.args[2][0].replacement.speaker === '$1');
+    assert(onMatch.args[2][1].value === 'dolor sit amet, consectetur adipisicing elit.');
+    assert(onMatch.args[2][2].options.speaker === 'dolor');
+    assert(onMatch.args[2][3].length === 1);
+    assert(onMatch.args[2][3][0] === 'dolor');
+
+    assert(onMatch.args[3].length === 4);
+    assert(onMatch.args[3][0].method === 'rewrite');
+    assert(onMatch.args[3][0].replacement.type === 'foo');
+    assert(onMatch.args[3][1].value === 'sit amet, consectetur adipisicing elit.');
+    assert(onMatch.args[3][2].value === 'sit');
+    assert(onMatch.args[3][2].type === 'foo');
+    assert(onMatch.args[3][3].length === 1);
+    assert(onMatch.args[3][3][0] === 'sit');
+  });
+
+  it('if return value is false, it should not change the token', () => {
+    const onMatch = sinon.spy(() => false);
+    const words = 'lorem ipsum dolor sit amet, consectetur adipisicing elit.';
+    const tokens = transform(words, {
+      '/(lorem)/': { replace: 'ろーれむ' },
+      ipsum: { exchange: "{ value: 'いぷさむ' }" },
+      '/(dolor)/': { toggle: { speaker: '$1' } },
+      '/(sit|amet|consectetur|adipisicing|elit)/': { rewrite: { type: 'foo' } },
+    }, { onMatch });
+
+    assert(tokens.length === 1);
+    assert(tokens[0].type === 'text');
+    assert(tokens[0].value === 'lorem ipsum dolor sit amet, consectetur adipisicing elit.');
+    assert(onMatch.callCount === 4);
+    assert(onMatch.args[0].length === 4);
+    assert(onMatch.args[0][0].method === 'replace');
+    assert(onMatch.args[0][0].replacement.value === 'ろーれむ');
+    assert(onMatch.args[0][1].value === 'lorem ipsum dolor sit amet, consectetur adipisicing elit.');
+    assert(onMatch.args[0][2].value === 'ろーれむ ipsum dolor sit amet, consectetur adipisicing elit.');
+    assert(onMatch.args[0][3].length === 1);
+    assert(onMatch.args[0][3][0] === 'lorem');
   });
 });
 
@@ -151,7 +223,7 @@ describe('mixin', () => {
       '.': '。',
       lorem: { replace: 'ろーれむ' },
       ipsum: { exchange: { value: 'いぷさむ' } },
-      '/(dolor)/': { toggle: { speaker: '$1' } },
+      '/(dolor)/': { toggle: "{ speaker: '$1' }" },
       '/sit|amet|consectetur|adipisicing|elit/': 'ふー',
     });
     assert(tokens.length === 3);
@@ -163,58 +235,48 @@ describe('mixin', () => {
     assert(tokens[2].value === 'ふー ふー、 ふー ふー ふー。');
     assert(tokens[2].options.speaker === 'dolor');
   });
-});
 
-describe('use onMatch option', () => {
-  it('it should pass the token and properties and matches to the onMatch callback', () => {
-    const onMatch = sinon.spy(() => true);
+  it('use normalized define, it should work', () => {
     const words = 'lorem ipsum dolor sit amet, consectetur adipisicing elit.';
-    const tokens = transform(words, {
-      lorem: { replace: 'ろーれむ', onMatch },
-      ipsum: { exchange: { value: 'いぷさむ' }, onMatch },
-      '/(dolor)/': { toggle: { speaker: '$1' }, onMatch },
-      '/(sit|amet|consectetur|adipisicing|elit)/': { rewrite: { type: 'foo' }, onMatch },
-    });
-    assert(tokens.length === 1);
-    assert(tokens[0].type === 'foo');
-    assert(tokens[0].value === 'sit');
-
-    assert(onMatch.callCount === 4);
-    assert(onMatch.args[0][0].value === 'ろーれむ ipsum dolor sit amet, consectetur adipisicing elit.');
-    assert(onMatch.args[0][1] === 'ろーれむ');
-    assert(onMatch.args[0][2].length === 0);
-
-    assert(onMatch.args[1][0].value === 'いぷさむ');
-    assert(onMatch.args[1][1].value === 'いぷさむ');
-    assert(onMatch.args[1][2].length === 0);
-
-    assert(onMatch.args[2][0].value === 'dolor');
-    assert(onMatch.args[2][0].options.speaker === 'dolor');
-    assert(onMatch.args[2][1].speaker === 'dolor');
-    assert(onMatch.args[2][2].length === 1);
-    assert(onMatch.args[2][2][0] === 'dolor');
-
-    assert(onMatch.args[3][0].value === 'sit');
-    assert(onMatch.args[3][1].type === 'foo');
-    assert(onMatch.args[3][2].length === 1);
-    assert(onMatch.args[3][2][0] === 'sit');
-  });
-
-  it('if return value is false, it should not change the token', () => {
-    const onMatch = sinon.spy(() => false);
-    const words = 'lorem ipsum dolor sit amet, consectetur adipisicing elit.';
-    const tokens = transform(words, {
-      lorem: { replace: 'ろーれむ', onMatch },
-      ipsum: { exchange: { value: 'いぷさむ' }, onMatch },
-      '/(dolor)/': { toggle: { speaker: '$1' }, onMatch },
-      '/(sit|amet|consectetur|adipisicing|elit)/': { rewrite: { type: 'foo' }, onMatch },
-    });
-
-    assert(tokens.length === 1);
+    const tokens = transform(words, [
+      {
+        pattern: ',',
+        method: 'replace',
+        replacement: '、',
+      },
+      {
+        pattern: '.',
+        method: 'replace',
+        replacement: '。',
+      },
+      {
+        pattern: 'lorem',
+        method: 'replace',
+        replacement: 'ろーれむ',
+      },
+      {
+        pattern: 'ipsum',
+        method: 'exchange',
+        replacement: 'いぷさむ',
+      },
+      {
+        pattern: '/(dolor)/',
+        method: 'toggle',
+        replacement: "{speaker:'$1'}",
+      },
+      {
+        pattern: '/sit|amet|consectetur|adipisicing|elit/',
+        method: 'replace',
+        replacement: "{value:'ふー'}",
+      },
+    ]);
+    assert(tokens.length === 3);
     assert(tokens[0].type === 'text');
-    assert(tokens[0].value === 'lorem ipsum dolor sit amet, consectetur adipisicing elit.');
-    assert(onMatch.callCount === 4);
-    assert(onMatch.args[0][0].value === 'ろーれむ ipsum dolor sit amet, consectetur adipisicing elit.');
-    assert(onMatch.args[0][1] === 'ろーれむ');
+    assert(tokens[0].value === 'ろーれむ');
+    assert(tokens[1].type === 'text');
+    assert(tokens[1].value === 'いぷさむ');
+    assert(tokens[2].type === 'text');
+    assert(tokens[2].value === 'ふー ふー、 ふー ふー ふー。');
+    assert(tokens[2].options.speaker === 'dolor');
   });
 });

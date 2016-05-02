@@ -22,42 +22,47 @@ export default class ItakoTextTransformerDictionary {
   * @returns {tokens[]} tokens - the transformed tokens or ignore
   */
   transform(originalTokens, dictionary = {}) {
-    return utils.normalizeDictionary(dictionary).reduce((tokens, define) => {
-      const { pattern, options } = define;
-      const opts = typeof options === 'string' ? { replace: options } : options;
-      if (opts.rewrite) {
-        return this.rewrite(tokens, pattern, options);
+    const defines = utils.normalizeDictionary(dictionary);
+    return defines.reduce((tokens, define) => {
+      switch (define.method) {
+        case 'rewrite':
+          return this.rewrite(tokens, define);
+
+        case 'replace':
+          return tokens.reduce(
+            (previous, token) =>
+              previous.concat(this.replace(token, define)),
+            [],
+          );
+
+        case 'toggle':
+          return tokens.reduce(
+            (previous, token) =>
+              previous.concat(this.toggle(token, define)),
+            [],
+          );
+
+        case 'exchange':
+          return tokens.reduce(
+            (previous, token) =>
+              previous.concat(this.exchange(token, define)),
+            [],
+          );
+
+        default:
+          return tokens;
       }
-      if (opts.replace) {
-        return tokens.reduce(
-          (previous, token) => previous.concat(this.replace(token, pattern, opts)),
-          [],
-        );
-      }
-      if (opts.toggle) {
-        return tokens.reduce(
-          (previous, token) => previous.concat(this.toggle(token, pattern, opts)),
-          [],
-        );
-      }
-      if (opts.exchange) {
-        return tokens.reduce(
-          (previous, token) => previous.concat(this.exchange(token, pattern, opts)),
-          [],
-        );
-      }
-      return tokens;
     }, originalTokens);
   }
 
   /**
   * @method rewrite
   * @param {token[]} originalTokens - a target tokens
-  * @param {string} pattern - a replace target
-  * @param {object} opts - use rewrite and onMatch option
+  * @param {object} define - a replacement define
   * @returns {tokens[]} tokens - ignore or return the modified tokens
   */
-  rewrite(originalTokens, pattern, opts = {}) {
+  rewrite(originalTokens, define) {
+    const { pattern, replacement } = define;
     const regexp = utils.toRegExp(pattern);
 
     for (let i = 0; i < originalTokens.length; i++) {
@@ -70,16 +75,16 @@ export default class ItakoTextTransformerDictionary {
         continue;
       }
 
-      const normalizedProps = utils.resolveDollars(opts.rewrite, matches);
+      const normalizedProps = utils.resolveDollars(replacement, matches);
       const token = utils.setProps(
         originalToken
-          .clone({ transformer: this, rewrite: true })
+          .clone({ transformer: this, define })
           .setValue(value),
         normalizedProps,
       );
 
-      const onMatch = opts.onMatch || (() => true);
-      if (onMatch.call(this, token, normalizedProps, matches) === false) {
+      const onMatch = this.opts.onMatch || (() => true);
+      if (onMatch.call(this, define, originalToken, token, matches) === false) {
         return originalTokens;
       }
       return [token];
@@ -89,26 +94,26 @@ export default class ItakoTextTransformerDictionary {
   }
 
   /**
-  * @method toggle
+  * @method replace
   * @param {token} originalToken - a source token
-  * @param {string} pattern - a replace target
-  * @param {object} opts - use replace and onMatch option
+  * @param {object} define - a replacement define
   * @returns {token} replacedToken - ignore or return the modified tokens
   */
-  replace(originalToken, pattern, opts = {}) {
+  replace(originalToken, define) {
+    const { pattern, replacement } = define;
     if (originalToken.type !== 'text') {
       return originalToken;
     }
 
     const regexp = utils.toRegExp(pattern);
     const [value, ...matches] = regexp.exec(originalToken.value) || [''];
-    if (typeof opts.replace === 'string' && value.length) {
+    if (typeof replacement.value === 'string' && value.length) {
       const token = originalToken
-        .clone({ transformer: this })
-        .setValue(originalToken.value.replace(regexp, opts.replace));
+        .clone({ transformer: this, define })
+        .setValue(originalToken.value.replace(regexp, replacement.value));
 
-      const onMatch = opts.onMatch || (() => true);
-      if (onMatch.call(this, token, opts.replace, matches) !== false) {
+      const onMatch = this.opts.onMatch || (() => true);
+      if (onMatch.call(this, define, originalToken, token, matches) !== false) {
         return token;
       }
     }
@@ -118,11 +123,11 @@ export default class ItakoTextTransformerDictionary {
   /**
   * @method toggle
   * @param {token} originalToken - a source token
-  * @param {string} pattern - a replace target
-  * @param {object} opts - use toggle and onMatch option
+  * @param {object} define - a replacement define
   * @returns {token|token[]} toggledTokens - ignore or return the modified tokens
   */
-  toggle(originalToken, pattern, opts = {}) {
+  toggle(originalToken, define) {
+    const { pattern, replacement } = define;
     if (originalToken.type !== 'text') {
       return originalToken;
     }
@@ -132,7 +137,8 @@ export default class ItakoTextTransformerDictionary {
     const children = [];
     let result = regexp.exec(originalToken.value);
     let lastIndexOf = 0;
-    let normalizedOptions = {};
+
+    let currentToken = {};
     while (result) {
       const [value, ...matches] = result;
       if (result.index > lastIndexOf) {
@@ -141,24 +147,23 @@ export default class ItakoTextTransformerDictionary {
         if (normalizedValue) {
           children.push(
             originalToken
-            .clone({ transformer: this })
-            .setOptions(normalizedOptions)
+            .clone({ transformer: this, define })
+            .setOptions(currentToken.options)
             .setValue(normalizedValue),
           );
         }
       }
       lastIndexOf = result.index + value.length;
 
-      const resolvedOptions = utils.resolveDollars(opts.toggle, matches);
-      const token = originalToken
-        .clone({ transformer: this })
+      const normalizedOptions = utils.resolveDollars(replacement, matches);
+      currentToken = originalToken
+        .clone({ transformer: this, define })
         .setValue(value)
-        .setOptions(resolvedOptions);
-      const onMatch = opts.onMatch || (() => true);
-      if (onMatch.call(this, token, resolvedOptions, matches) === false) {
+        .setOptions(normalizedOptions);
+      const onMatch = this.opts.onMatch || (() => true);
+      if (onMatch.call(this, define, originalToken, currentToken, matches) === false) {
         return originalToken;
       }
-      normalizedOptions = resolvedOptions;
 
       result = regexp.exec(originalToken.value);
     }
@@ -168,7 +173,7 @@ export default class ItakoTextTransformerDictionary {
       children.push(
         originalToken
         .clone({ transformer: this })
-        .setOptions(normalizedOptions)
+        .setOptions(currentToken.options)
         .setValue(normalizedValue),
       );
     }
@@ -179,11 +184,11 @@ export default class ItakoTextTransformerDictionary {
   /**
   * @method exchange
   * @param {token} originalToken - a source token
-  * @param {string} pattern - a replace target
-  * @param {object} opts - use exchange and onMatch option
+  * @param {object} define - a replacement define
   * @returns {token|token[]} exchangedToken - ignore or return the modified tokens
   */
-  exchange(originalToken, pattern, opts = {}) {
+  exchange(originalToken, define) {
+    const { pattern, replacement } = define;
     if (originalToken.type !== 'text') {
       return originalToken;
     }
@@ -201,28 +206,26 @@ export default class ItakoTextTransformerDictionary {
         if (normalizedValue) {
           children.push(
             originalToken
-            .clone({ transformer: this })
+            .clone({ transformer: this, define })
             .setValue(normalizedValue),
           );
         }
       }
       lastIndexOf = result.index + value.length;
 
-      const normalizedPropties = utils.resolveDollars(opts.exchange, matches);
-      const token = originalToken
-        .clone({ transformer: this })
-        .setValue(value);
-      const onMatch = opts.onMatch || (() => true);
-      if (onMatch.call(this, token, normalizedPropties, matches) === false) {
+      const normalizedProps = utils.resolveDollars(replacement, matches);
+      const token = utils.setProps(
+       originalToken
+         .clone({ transformer: this, define })
+         .setValue(value),
+       normalizedProps,
+     );
+      const onMatch = this.opts.onMatch || (() => true);
+      if (onMatch.call(this, define, originalToken, token, matches) === false) {
         return originalToken;
       }
 
-      children.push(
-        utils.setProps(
-          token,
-          normalizedPropties,
-        )
-      );
+      children.push(token);
       result = regexp.exec(originalToken.value);
     }
     if (originalToken.value.length > lastIndexOf) {
