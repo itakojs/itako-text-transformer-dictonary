@@ -22,33 +22,32 @@ export default class ItakoTextTransformerDictionary {
   * @returns {tokens[]} tokens - the transformed tokens or ignore
   */
   transform(originalTokens, dictionary = {}) {
-    const defines = utils.normalizeDictionary(dictionary);
-    return originalTokens.map((originalToken) => {
-      let tokens = [originalToken];
-      for (let i = 0; i < defines.length; i++) {
-        const { pattern, options } = defines[i];
-        const opts = typeof options === 'string' ? { replace: options } : options;
-        if (opts.rewrite) {
-          tokens = this.rewrite(tokens, pattern, options);
-        } else if (opts.replace) {
-          tokens = tokens.reduce(
-            (previous, token) => previous.concat(this.replace(token, pattern, opts)),
-            [],
-          );
-        } else if (opts.toggle) {
-          tokens = tokens.reduce(
-            (previous, token) => previous.concat(this.toggle(token, pattern, opts)),
-            [],
-          );
-        } else if (opts.exchange) {
-          tokens = tokens.reduce(
-            (previous, token) => previous.concat(this.exchange(token, pattern, opts)),
-            [],
-          );
-        }
+    return utils.normalizeDictionary(dictionary).reduce((tokens, define) => {
+      const { pattern, options } = define;
+      const opts = typeof options === 'string' ? { replace: options } : options;
+      if (opts.rewrite) {
+        return this.rewrite(tokens, pattern, options);
+      }
+      if (opts.replace) {
+        return tokens.reduce(
+          (previous, token) => previous.concat(this.replace(token, pattern, opts)),
+          [],
+        );
+      }
+      if (opts.toggle) {
+        return tokens.reduce(
+          (previous, token) => previous.concat(this.toggle(token, pattern, opts)),
+          [],
+        );
+      }
+      if (opts.exchange) {
+        return tokens.reduce(
+          (previous, token) => previous.concat(this.exchange(token, pattern, opts)),
+          [],
+        );
       }
       return tokens;
-    });
+    }, originalTokens);
   }
 
   /**
