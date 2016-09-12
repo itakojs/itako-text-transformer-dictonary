@@ -38,10 +38,10 @@ Usage
 specify instance as second argument of the [Itako constructor](https://github.com/itakojs/itako#usage) as the value of the array.
 
 ```html
-<script src="https://npmcdn.com/itako"></script>
-<script src="https://npmcdn.com/itako-text-reader-speech-synthesis"></script>
-<script src="https://npmcdn.com/itako-audio-reader-audio-context"></script>
-<script src="https://npmcdn.com/itako-text-transformer-dictionary"></script>
+<script src="https://unpkg.com/itako"></script>
+<script src="https://unpkg.com/itako-text-reader-speech-synthesis"></script>
+<script src="https://unpkg.com/itako-audio-reader-audio-context"></script>
+<script src="https://unpkg.com/itako-text-transformer-dictionary"></script>
 <script>
 var textReader = new ItakoTextReaderSpeechSynthesis;
 var audioReader = new ItakoAudioReaderAudioContext;
